@@ -1,0 +1,73 @@
+- name: provision mongo (install from source)
+  hosts: "localhost"
+  gather_facts: yes
+  become: yes
+  no_log: false
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    MONGODB_PATH_TO_CONF: "{{ lookup('env','MONGODB_PATH_TO_CONF')|default('/tmp', true) }}"
+    MONGODB_ADMIN_PASS: "{{ lookup('env','MONGODB_ADMIN_PASS') }}"
+    MONGODB_ADMIN_ROLES: "{{ lookup('env','MONGODB_ADMIN_ROLES') }}"
+  tasks:
+    - debug:
+        msg: "Mongo configuration root path is {{ MONGODB_PATH_TO_CONF }}"
+    - debug:
+        msg: "New admin pass {{ MONGODB_ADMIN_PASS }}"
+    - debug:
+        msg: "Admin roles are {{ MONGODB_ADMIN_ROLES }}"
+    - name: Install build utils
+      apt:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - gnupg
+        - gnupg-agent
+        - software-properties-common
+        - wget
+        - apt-transport-https
+        - ca-certificates
+        - curl
+        - tar
+        - zip
+    - name: Add an Apt signing key, uses whichever key is at the URL
+      apt_key:
+        url: https://www.mongodb.org/static/pgp/server-4.4.asc
+        state: present
+    - name: Add multi universe apt repository for mongodb to focal Ubuntu (20.04)
+      apt_repository:
+        repo: "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/4.4 multiverse"
+        state: present
+        filename: /etc/apt/sources.list.d/mongodb-org-4.4.list
+    - name: Update APT Package repository cache
+      apt:
+        update_cache: True
+    - name: Install mongodb community edition
+      apt:
+        name: mongodb-org
+        state: present
+    - name: Install pymongo for ansible to be able to create/update mongodb users
+      pip: name=pymongo
+      become: yes
+    - name: Ensure the mongod service is running
+      service:
+        name: mongod
+        state: started
+        enabled: yes
+    - name: Copy mongo conf to etc folder
+      copy:
+        src: "{{ MONGODB_PATH_TO_CONF }}/mongod.conf"
+        dest: "/etc/mongod.conf"
+    # https://docs.mongodb.com/manual/tutorial/enable-authentication/
+    - name: Create admin user for ALL databases
+      mongodb_user:
+        database: admin
+        name: mongoAdmin
+        password: "{{ MONGODB_ADMIN_PASS }}"
+        roles: "{{ MONGODB_ADMIN_ROLES }}"
+        state: present
+    - name: Restart Mongod
+      systemd:
+        state: restarted
+        name: mongod
+
+      

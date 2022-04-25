@@ -1,0 +1,112 @@
+---
+- name: provision ghost instance
+  hosts: "localhost"
+  gather_facts: yes
+  become: yes
+  no_log: false
+  # as per the ghost ubuntu installation instructions
+  # url: https://ghost.org/docs/install/ubuntu/
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    GHOST_USER: "{{ lookup('env','GHOST_INSTANCE_USER')|default('ubuntu', true) }}"
+    GHOST_NAME: "{{ lookup('env','GHOST_INSTANCE_NAME') }}"
+    GHOST_DOMAIN: "{{ lookup('env','GHOST_INSTANCE_DOMAIN') }}"
+    DB_NAME: "{{ lookup('env','GHOST_DB_NAME')|default('ghost', true) }}"
+    DB_USERNAME: "{{ lookup('env','GHOST_DB_USERNAME')|default('dbuser', true) }}"
+    DB_USERPASS: "{{ lookup('env','GHOST_DB_USERPASS')|default('dbpass', true) }}"
+    DB_HOST: "{{ lookup('env','GHOST_DB_HOST')|default('127.0.0.1', true) }}"
+    DB_PORT: "{{ lookup('env','GHOST_DB_PORT')|default(3306, true) }}"
+    SSL_EMAIL: "{{ lookup('env','GHOST_SSL_EMAIL') }}"
+    SMTP_MAILER: "{{ lookup('env','GHOST_SMTP_MAILER')|default('Mailgun', true) }}"
+    SMTP_USERNAME: "{{ lookup('env','GHOST_SMTP_USERNAME') }}"
+    SMTP_USERPASS: "{{ lookup('env','GHOST_SMTP_USERPASS') }}"
+    SMTP_HOST: "{{ lookup('env','GHOST_SMTP_HOST')|default('smtp.mailgun.org', true) }}"
+    SMTP_PORT: "{{ lookup('env','GHOST_SMTP_PORT')|default(587, true) }}"
+  tasks:
+    - debug:
+        msg: "Ghost user is {{ GHOST_USER }}"
+    - debug:
+        msg: "Ghost name is {{ GHOST_NAME }}"
+    - debug:
+        msg: "Ghost domain is {{ GHOST_DOMAIN }}"
+    - debug:
+        msg: "Ghost db name is {{ DB_NAME }}"
+    - debug:
+        msg: "Ghost db user is {{ DB_USERNAME }}"
+    - debug:
+        msg: "Ghost db user pass is {{ DB_USERPASS }}"
+    - debug:
+        msg: "Ghost db host is {{ DB_HOST }}"
+    - debug:
+        msg: "Ghost db port is {{ DB_PORT }}"
+    - debug:
+        msg: "Ghost ssl email is {{ SSL_EMAIL }}"
+    - debug:
+        msg: "Ghost smtp mailer is {{ SMTP_MAILER }}"
+    - debug:
+        msg: "Ghost smtp user is {{ SMTP_USERNAME }}"
+    - debug:
+        msg: "Ghost smtp user pass is {{ SMTP_USERPASS }}"
+    - debug:
+        msg: "Ghost smtp host is {{ SMTP_HOST }}"
+    - debug:
+        msg: "Ghost smtp port is {{ SMTP_PORT }}"       
+    # -> https://ghost.org/docs/install/ubuntu/#create-a-new-user-
+    # -> https://ghost.org/docs/install/ubuntu/#install-nginx
+    - name: install nginx web server
+      apt:
+        name: nginx
+        state: present
+        update_cache: yes
+    - name: install the "uncomplicated firewall"
+      apt:
+        name: ufw
+        state: present
+        update_cache: yes
+    # sudo ufw allow 'Nginx Full'
+    # https://www.opensourceforu.com/2018/03/devops-series-ansible-deployment-nginx-ssl/
+    - name: Allow Nginx Full
+      ufw:
+        rule: allow
+        name: Nginx Full
+        state: enabled
+    - name: Allow OpenSSH
+      ufw:
+        rule: allow
+        name: OpenSSH
+        state: enabled
+    # -> https://ghost.org/docs/install/ubuntu/#install-nodejs
+    - name: download NodeJs12 script
+      get_url:
+        url: https://deb.nodesource.com/setup_16.x
+        dest: /opt/nodestup
+        mode: 0755
+    - name: execute NodeJs16 scrpt
+      shell: /opt/nodestup
+    - name: install NodeJs16
+      apt:
+        name: nodejs
+        state: present
+        update_cache: yes
+    # -> https://ghost.org/docs/install/ubuntu/#install-ghost-cli
+    - name: install ghost-cli
+      npm:
+        name: ghost-cli
+        global: yes
+    # -> https://ghost.org/docs/install/ubuntu/#create-a-directory
+    - name: create ghost directory
+      file:
+        path: /var/www/ghost
+        state: directory
+        owner: "{{ GHOST_USER }}"
+        group: "{{ GHOST_USER }}"
+        recurse: yes
+        mode: 0755
+    # -> https://ghost.org/docs/install/ubuntu/#install-ghost
+    - name: install ghost in ghost directory
+      become: yes
+      become_user: "{{ GHOST_USER }}"
+      args:
+        chdir: /var/www/ghost
+        executable: /bin/bash
+      shell: ghost install --pname={{ GHOST_NAME }} --url={{ GHOST_DOMAIN }} --port=2368 --db=mysql --dir=/var/www/ghost --dbhost={{ DB_HOST }} --dbport={{ DB_PORT }} --dbname={{ DB_NAME }} --dbuser={{ DB_USERNAME }} --dbpass={{ DB_USERPASS }} --prompt=false --start=true --enable=true --sslemail={{ SSL_EMAIL }} --mail SMTP --mailservice {{ SMTP_MAILER }} --mailuser {{ SMTP_USERNAME }} --mailpass {{ SMTP_USERPASS }} --mailhost {{ SMTP_HOST }}  --mailport {{ SMTP_PORT }}

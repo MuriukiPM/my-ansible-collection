@@ -1,0 +1,64 @@
+- name: provision postgresql instance
+  hosts: "localhost"
+  gather_facts: yes
+  become_user: root
+  become: true
+  no_log: false
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    CONN_RANGE: "{{ lookup('env','PGSQL_CONN_RANGE') }}"
+  tasks:
+    - debug:
+        msg: "Allowed connections (ip range): {{ CONN_RANGE }}"
+    - name: Update cache
+      apt:
+        update_cache: yes
+        state: latest
+    - name: Ensure bash, OpenSSL, and libssl are the latest versions
+      apt:
+        name: "{{ item }}"
+        update_cache: yes
+        state: latest
+      loop:
+        - acl
+        - bash
+        - openssl
+        - libssl-dev
+        - libssl-doc
+      tags: packages
+    - name: Install PostgresSQL on Ubuntu 20.04
+      apt:
+        name: "{{ item }}"
+        update_cache: yes
+        state: present
+      loop:
+        - postgresql
+        - postgresql-contrib
+        - libpq-dev
+        - python3-pip
+      tags: packages
+    - name: Install psycopg2 for ansible to be able to create postgresql users
+      pip: name=psycopg2
+    - name: Ensure the PostgresSQL service is running
+      service:
+        name: postgresql
+        state: started
+        enabled: yes
+    - name: Configure DBs to listen on ip address
+      become_user: postgres
+      become: true
+      postgresql_set:
+        name: listen_addresses
+        value: '*'
+    - name: Allow ssl connections on remote
+      postgresql_pg_hba:
+        dest: "/etc/postgresql/12/main/pg_hba.conf"
+        contype: host
+        users: all
+        source: "{{ CONN_RANGE }}"
+        databases: all
+        method: md5
+    - name: Restart PostgreSQL
+      systemd:
+        state: restarted
+        name: postgresql

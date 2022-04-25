@@ -1,0 +1,39 @@
+- name: provision mysql instance - New database
+  hosts: "localhost"
+  gather_facts: yes
+  become: yes
+  no_log: false
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    DB_NAME: "{{ lookup('env','MYSQL_NEW_DB_NAME')|default('mydb', true) }}"
+    DB_USERNAME: "{{ lookup('env','MYSQL_NEW_DB_USER')|default('dbuser', true) }}"
+    DB_USERPASS: "{{ lookup('env','MYSQL_NEW_DB_USER_PASS')|default('dbpass', true) }}"
+  tasks:
+    - debug:
+        msg: "New db name is {{ DB_NAME }}"
+    - debug:
+        msg: "New db user is {{ DB_USERNAME }}"
+    - debug:
+        msg: "New db user pass is {{ DB_USERPASS }}"
+    - name: Make sure mysql service is running
+      service:
+        name: mysql
+        state: started
+        enabled: True
+    - name: Create/delete a new database
+      community.mysql.mysql_db:
+        ## https://stackoverflow.com/a/61109484/10087707
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+        name: "{{ DB_NAME }}"
+        state: "present"
+    - name: Create/delete remote user
+      community.mysql.mysql_user:
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+        name: "{{ DB_USERNAME }}"
+        host: "%"
+        password: "{{ DB_USERPASS }}"
+        priv: "{{ DB_NAME }}.*:ALL"
+        state: "present"
+      no_log: false
+    - name: Flush Privileges
+      shell: mysql -u root -e 'FLUSH PRIVILEGES'

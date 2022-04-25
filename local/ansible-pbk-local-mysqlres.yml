@@ -1,0 +1,40 @@
+- name: provision mysql instance
+  hosts: "localhost"
+  gather_facts: yes
+  become: yes
+  no_log: false
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    MYSQL_DUMPFILE: "{{ lookup('env','MYSQL_DUMPFILE') }}"
+    MYSQL_NEWDB_NAME: "{{ lookup('env','MYSQL_NEWDB_NAME') }}"
+    MYSQL_NEWDB_USER_NAME: "{{ lookup('env','MYSQL_NEWDB_USER_NAME') }}"
+    MYSQL_NEWDB_USER_PASS: "{{ lookup('env','MYSQL_NEWDB_USER_PASS') }}"
+  tasks:
+    - debug:
+        msg: "New db file is at {{ MYSQL_DUMPFILE }}"
+    - debug:
+        msg: "New db user is {{ MYSQL_NEWDB_NAME }}"
+    - debug:
+        msg: "New db user is {{ MYSQL_NEWDB_USER_NAME }}"
+    - debug:
+        msg: "New db user pass is {{ MYSQL_NEWDB_USER_PASS }}"
+    - name: Make sure mysql service is running
+      service:
+        name: mysql
+        state: started
+        enabled: True
+    - name: Restore database from sql dump file
+      mysql_db:
+        name: "{{ MYSQL_NEWDB_NAME }}"
+        state: import
+        target: "./{{ MYSQL_DUMPFILE }}"
+    - name: Create/delete remote user
+      mysql_user:
+        name: "{{ MYSQL_NEWDB_USER_NAME }}"
+        host: "%"
+        password: "{{ MYSQL_NEWDB_USER_PASS }}"
+        priv: "{{ MYSQL_NEWDB_NAME }}.*:ALL"
+        state: present
+      no_log: false
+    - name: Flush Privileges
+      shell: mysql -u root -e 'FLUSH PRIVILEGES'

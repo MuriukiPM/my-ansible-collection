@@ -1,0 +1,94 @@
+- name: provision docker
+  hosts: "localhost"
+  gather_facts: yes
+  become: yes
+  no_log: false
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+  tasks:
+    - name: Add universe apt repository to focal Ubuntu (20.04)
+      apt_repository:
+        repo: "{{ item }}"
+        state: present
+      loop:
+        - "deb http://archive.ubuntu.com/ubuntu/ focal universe"
+        - "deb http://archive.ubuntu.com/ubuntu/ focal-updates universe"
+        - "deb http://security.ubuntu.com/ubuntu/ focal-security universe"
+    - name: Update APT Package repository cache
+      apt:
+        update_cache: True
+    - name: Install utils
+      apt:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - gnupg-agent
+        - software-properties-common
+        - apt-transport-https
+        - ca-certificates
+        - curl
+    - name: Add Docker repo key
+      apt_key:
+          url: https://download.docker.com/linux/ubuntu/gpg
+          state: present
+      become: true
+    - name: Add Docker Repository for Ubuntu (Focal) 20.04
+      apt_repository:
+        repo: deb https://download.docker.com/linux/ubuntu focal stable
+        state: present
+    - name: Install Docker
+      apt:
+        name: "{{ item }}"
+        update_cache: yes
+        state: present
+      loop:
+        - docker-ce
+        - docker-ce-cli
+        - containerd.io
+    - name: Ensure group "docker" exists
+      group:
+        name: docker
+        state: present
+    - name: Add current user to docker group
+      user:
+        name: ksfwpAdmin
+        shell: /bin/bash
+        groups: docker
+        append: yes
+      become: yes
+    - name: Add docker compose binary for Linux
+      get_url:
+        url: "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-Linux-x86_64"
+        dest: /usr/local/bin/docker-compose
+        mode: a+x
+    - name: Create project directory
+      file:
+        path: ~/test-docker
+        state: directory
+        owner: ksfwpAdmin
+        group: ksfwpAdmin
+        recurse: yes
+        mode: 0755
+    - name: Install python3-docker library
+      apt:
+        name: python3-docker
+        state: present
+    - name: Pull default Docker image
+      docker_image:
+        name: nginxdemos/hello:latest
+        source: pull
+    # - name: Stop default container if running
+    #   docker_container:
+    #     name: demo
+    #     state: stopped
+    # - name: Remove container if stopped
+    #   docker_container:
+    #     name: demo
+    #     state: absent
+    - name: Start default container
+      docker_container:
+        name: demo
+        image: "nginxdemos/hello:latest"
+        published_ports: "8080:80"
+        network_mode: host
+        state: present

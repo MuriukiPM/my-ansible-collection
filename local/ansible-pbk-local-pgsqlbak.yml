@@ -1,0 +1,62 @@
+- name: back up postgresql db(s)
+  hosts: "localhost"
+  become: yes
+  no_log: false
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    BACKUPS_DIR: "{{ lookup('env','POSTGRES_BACKUPS_DIR') | default('/tmp/backups', true) }}"
+    BACKUPS_SBNAME: "{{ lookup('env','POSTGRES_BACKUPS_SBNAME') }}"
+    BACKUP_ID: "{{ lookup('env','BACKUP_ID') }}"
+    DB_NAME: "{{ lookup('env','POSTGRES_DBNAME') }}"
+    DB_USERNAME: "{{ lookup('env','POSTGRES_DBUSERNAME') }}"
+    DB_USERPASS: "{{ lookup('env','POSTGRES_DBUSERPASS') }}"
+  tasks:
+    - debug:
+        msg: "Back up Directory is: {{ BACKUPS_DIR }}"
+    - debug:
+        msg: "Back up remote storage is: {{ BACKUPS_SBNAME }}"
+    - debug:
+        msg: "Back up ID is: {{ BACKUP_ID }}"
+    - debug:
+        msg: "Name of db: {{ DB_NAME }}"
+    - debug:
+        msg: "User name of db: {{ DB_USERNAME }}"
+    - debug:
+        msg: "Password of user of db: {{ DB_USERPASS }}"
+    - name: Ensure the PostgresSQL service is running
+      service:
+        name: postgresql
+        state: started
+        enabled: yes
+    - name: create postgres backups directory
+      file:
+        path: "{{ BACKUPS_DIR }}"
+        state: directory
+        owner: "root"
+        group: "root"
+        recurse: yes
+        mode: 0777
+    - name: Backup database
+      become: true
+      become_user: postgres
+      community.postgresql.postgresql_db:
+        login_host: "localhost"
+        login_user: "{{ DB_USERNAME }}"
+        login_password: "{{ DB_USERPASS }}"
+        state: dump
+        name: "{{ DB_NAME }}"
+        target: "{{ BACKUPS_DIR }}/{{ DB_NAME }}_db-{{ BACKUP_ID }}.sql.tar"
+    # https://phoenixnap.com/kb/ansible-check-if-file-exists
+    - name: Confirm back up file is written(1)
+      stat:
+        path: "{{ BACKUPS_DIR }}/{{ DB_NAME }}_db-{{ BACKUP_ID }}.sql.tar"
+      register: backup_file
+    - name: Confirm back up file is written(2)
+      debug:
+        msg: "The back up file exists"
+      when: backup_file.stat.exists and backup_file.stat.isreg
+    - name: Upload back up file
+      args:
+        chdir: "{{ BACKUPS_DIR }}"
+        executable: /bin/bash
+      shell: gsutil cp {{ DB_NAME }}_db-{{ BACKUP_ID }}.sql.tar gs://{{ BACKUPS_SBNAME }}/postgres/{{ DB_NAME }}/{{ BACKUP_ID }}.sql.tar

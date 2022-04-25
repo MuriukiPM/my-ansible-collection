@@ -1,0 +1,134 @@
+- name: provision postgresql instance
+  hosts: "localhost"
+  gather_facts: yes
+  become_user: root
+  become: true
+  no_log: false
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    PATH_TO_CERTS: "{{ lookup('env','PGSQL_PATH_TO_CERTS') }}"
+    CONN_RANGE: "{{ lookup('env','PGSQL_CONN_RANGE') }}"
+  tasks:
+    - debug:
+        msg: "Postgres certs located at: {{ PATH_TO_CERTS }}"
+    - debug:
+        msg: "Allowed connections (ip range): {{ CONN_RANGE }}"
+    - name: Update cache
+      apt:
+        update_cache: yes
+        state: latest
+    - name: Ensure bash, OpenSSL, and libssl are the latest versions
+      apt:
+        name: "{{ item }}"
+        update_cache: yes
+        state: latest
+      loop:
+        - acl
+        - bash
+        - openssl
+        - libssl-dev
+        - libssl-doc
+      tags: packages
+    - name: Install PostgresSQL on Ubuntu 20.04
+      apt:
+        name: "{{ item }}"
+        update_cache: yes
+        state: present
+      loop:
+        - postgresql
+        - postgresql-contrib
+        - libpq-dev
+        - python3-pip
+      tags: packages
+    - name: Install psycopg2 for ansible to be able to create postgresql users
+      pip: name=psycopg2
+    - name: Ensure the PostgresSQL service is running
+      service:
+        name: postgresql
+        state: started
+        enabled: yes
+    - name: Configure DBs to listen on ip address
+      become_user: postgres
+      become: true
+      postgresql_set:
+        name: listen_addresses
+        value: '*'
+    - name: Allow ssl connections on remote
+      postgresql_pg_hba:
+        dest: "/etc/postgresql/12/main/pg_hba.conf"
+        contype: hostssl
+        users: all
+        source: "{{ CONN_RANGE }}"
+        databases: all
+        method: md5
+    - name: create postgres certs directory
+      file:
+        path: /etc/ssl/certs/postgres.selfsigned
+        state: directory
+        owner: "root"
+        group: "root"
+        recurse: yes
+        mode: 0777
+    - name: Copy postgres-server-dhparams to etc folder
+      copy:
+        src: "{{ PATH_TO_CERTS }}/postgres-server-dhparam-2048.pem"
+        dest: "/etc/ssl/certs/postgres.selfsigned/dhparam-2048.pem"
+      no_log: false
+    - name: Copy postgres ca-cert to etc folder
+      copy:
+        src: "{{ PATH_TO_CERTS }}/postgres-cacert.pem"
+        dest: "/etc/ssl/certs/postgres.selfsigned/cacert.pem"
+      no_log: false
+    - name: Copy postgres-server-cert to etc folder
+      copy:
+        src: "{{ PATH_TO_CERTS }}/postgres-server-cert.pem"
+        dest: "/etc/ssl/certs/postgres.selfsigned/server-cert.pem"
+      no_log: false
+    - name: Copy postgres-server-key to etc folder
+      copy:
+        src: "{{ PATH_TO_CERTS }}/postgres-server-key.pem"
+        dest: "/etc/ssl/certs/postgres.selfsigned/server-key.pem"
+        owner: "postgres"
+        group: "postgres"
+        mode: 0600
+      no_log: false
+    # https://www.postgresql.org/docs/current/encryption-options.html
+    # https://www.postgresql.org/docs/12/runtime-config-connection.html#RUNTIME-CONFIG-CONNECTION-SSL
+    # postgresql_set uses ALTER SYSTEM which writes the given parameter setting 
+    # to the $PGDATA/postgresql.auto.conf file (/var/lib/postgresql/12/main/postgresql.auto.conf, 
+    # which is read in addition to postgresql.conf 
+    - name: Configure TLS for DB connection
+      become_user: postgres
+      become: true
+      postgresql_set:
+        name: ssl
+        value: on
+    - name: Configure TLS for DB connection
+      become_user: postgres
+      become: true
+      postgresql_set:
+        name: ssl_dh_params_file
+        value: '/etc/ssl/certs/postgres.selfsigned/dhparam-2048.pem'
+    - name: Configure TLS for DB connection
+      become_user: postgres
+      become: true
+      postgresql_set:
+        name: ssl_ca_file
+        value: "/etc/ssl/certs/postgres.selfsigned/cacert.pem"
+    - name: Configure TLS for DB connection
+      become_user: postgres
+      become: true
+      postgresql_set:
+        name: ssl_cert_file
+        value: '/etc/ssl/certs/postgres.selfsigned/server-cert.pem'
+    - name: Configure TLS for DB connection
+      become_user: postgres
+      become: true
+      postgresql_set:
+        name: ssl_key_file
+        value: '/etc/ssl/certs/postgres.selfsigned/server-key.pem'
+  
+    - name: Restart PostgreSQL
+      systemd:
+        state: restarted
+        name: postgresql

@@ -1,0 +1,87 @@
+- name: provision mongodb
+  hosts: "localhost"
+  gather_facts: yes
+  become: yes
+  no_log: false
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    MONGODB_ADMIN_PASS: "{{ lookup('env','MONGODB_ADMIN_PASS') }}"
+    MONGODB_NEWDB_NAME: "{{ lookup('env','MONGODB_NEWDB_NAME') }}"
+    MONGODB_NEWDB_ADMIN_NAME: "{{ lookup('env','MONGODB_NEWDB_ADMIN_NAME') }}"
+    MONGODB_NEWDB_ADMIN_PASS: "{{ lookup('env','MONGODB_NEWDB_ADMIN_PASS') }}"
+    MONGODB_NEWDB_RW_USER_NAME: "{{ lookup('env','MONGODB_NEWDB_RW_USER_NAME') }}"
+    MONGODB_NEWDB_RW_USER_PASS: "{{ lookup('env','MONGODB_NEWDB_RW_USER_PASS') }}"
+    MONGODB_NEWDB_RO_USER_NAME: "{{ lookup('env','MONGODB_NEWDB_RO_USER_NAME') }}"
+    MONGODB_NEWDB_RO_USER_PASS: "{{ lookup('env','MONGODB_NEWDB_RO_USER_PASS') }}"
+  tasks:
+    - debug:
+        msg: "Admin pass: {{ MONGODB_ADMIN_PASS }}"
+    - debug:
+        msg: "New db name: {{ MONGODB_NEWDB_NAME }}"
+    - debug:
+        msg: "New db admin name: {{ MONGODB_NEWDB_ADMIN_NAME }}"
+    - debug:
+        msg: "New db admin pass: {{ MONGODB_NEWDB_ADMIN_PASS }}"
+    - debug:
+        msg: "New db rw-user name: {{ MONGODB_NEWDB_RW_USER_NAME }}"
+    - debug:
+        msg: "New db rw-user pass:  {{ MONGODB_NEWDB_RW_USER_PASS }}"
+    - debug:
+        msg: "New db ro-user name:  {{ MONGODB_NEWDB_RO_USER_NAME }}"
+    - debug:
+        msg: "New db ro-user pass: {{ MONGODB_NEWDB_RO_USER_PASS }}"
+    - name: Ensure the mongod service is running
+      service:
+        name: mongod
+        state: started
+        enabled: yes
+    - name: Create the database
+      community.mongodb.mongodb_shell:
+        login_database: admin
+        login_host: localhost
+        login_user: mongoAdmin
+        login_password: "{{ MONGODB_ADMIN_PASS }}"
+        db: "{{ MONGODB_NEWDB_NAME }}"
+        debug: yes
+        eval: "db.test_collection.insertOne({'Key1':'Value1','Key2':'Value2'});"
+    # To login with such user, the connection string should be 
+    #"mongodb://<USER_NAME>:<USER_PASS>@<HOST>:<PORT>/MONGODB_NEWDB_NAME"
+    # https://docs.mongodb.com/manual/core/security-users/#authentication-database
+    # https://docs.mongodb.com/manual/reference/built-in-roles/#database-user-roles
+    - name: Create/Delete an admin user for new database
+      mongodb_user:
+        login_database: admin
+        login_host: localhost
+        login_user: mongoAdmin
+        login_password: "{{ MONGODB_ADMIN_PASS }}"
+        database: "{{ MONGODB_NEWDB_NAME }}"
+        name: "{{ MONGODB_NEWDB_ADMIN_NAME }}"
+        password: "{{ MONGODB_NEWDB_ADMIN_PASS }}"
+        roles: "dbOwner"
+        state: present
+    - name: Create/Delete a read-write user for new database
+      mongodb_user:
+        login_database: admin
+        login_host: localhost
+        login_user: mongoAdmin
+        login_password: "{{ MONGODB_ADMIN_PASS }}"
+        database: "{{ MONGODB_NEWDB_NAME }}"
+        name: "{{ MONGODB_NEWDB_RW_USER_NAME }}"
+        password: "{{ MONGODB_NEWDB_RW_USER_PASS }}"
+        roles: readWrite
+        state: present
+    - name: Create/Delete a read-only user for new database
+      mongodb_user:
+        login_database: admin
+        login_host: localhost
+        login_user: mongoAdmin
+        login_password: "{{ MONGODB_ADMIN_PASS }}"
+        database: "{{ MONGODB_NEWDB_NAME }}"
+        name: "{{ MONGODB_NEWDB_RO_USER_NAME }}"
+        password: "{{ MONGODB_NEWDB_RO_USER_PASS }}"
+        roles: read
+        state: present
+    - name: Restart Mongod
+      systemd:
+        state: restarted
+        name: mongod
